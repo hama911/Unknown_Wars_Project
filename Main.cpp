@@ -19,6 +19,7 @@ public:
 		Enabled = true;
 		JoinedPower = _power;
 		JoinedDivision = NULL;
+		Position = _pos;
 		for (auto& connect : ConnectMissions)
 			connect = NULL;
 	}
@@ -32,7 +33,7 @@ public:
 
 	}
 
-
+	int Bal = 0;				//戦闘レベル 最大5
 	bool Enabled = false;
 	Power* JoinedPower;			//制圧している勢力
 	Division* JoinedDivision;	//実行中のディビジョン
@@ -66,12 +67,12 @@ public:
 	void draw() const
 	{
 		if (!Enabled) return;
-		DrawCircleAA(Position, 10, Color(255, 0, 0));
+		/*DrawCircleAA(Position, 10, Color(255, 0, 0));
 		DrawLineAA(Position, TargetPosition, Color(255, 0, 0), 5);
 		DrawLineAA(Position, Position + Vec2Angle * 32, Color(255, 0, 0), 5);
-
-		MV1SetUseZBuffer(ModelHandle, TRUE);
-		MV1SetWriteZBuffer(ModelHandle, TRUE);
+		*/
+		//MV1SetUseZBuffer(ModelHandle, TRUE);
+		//MV1SetWriteZBuffer(ModelHandle, TRUE);
 		//MV1SetPosition(ModelHandle, VGet(Position));
 		MV1SetPosition(ModelHandle, VGet(DrawPosition));
 		//MV1SetRotationXYZ(ModelHandle, VGet(0, float(Vec2Angle.angle()), 0));
@@ -247,6 +248,8 @@ public:
 class Division
 {
 public:
+	void setAllMemberTargetPosition();
+	void mission();
 
 	Vec2 getMemberTargetPosition(const Unit* member) const
 	{
@@ -263,6 +266,7 @@ public:
 	void update()
 	{
 		if (!Enabled) return;
+		mission();
 	}
 
 	void draw() const
@@ -309,12 +313,13 @@ private:
 	Vec2	TargetPosition;
 	Vec2	Vec2Angle;
 	Vec2	Vec2TargetAngle;
+	Mission* JoinedMission;
 };
 
 
-#define UNIT_MAX 100
-#define DIVISION_MAX 100
-#define MISSION_MAX 100
+#define UNIT_MAX 10000
+#define DIVISION_MAX 1000
+#define MISSION_MAX 1000
 #define POWER_MAX 2
 Power powers[POWER_MAX];
 Unit units[UNIT_MAX];
@@ -374,6 +379,35 @@ void Unit::division()
 
 }
 
+void Division::setAllMemberTargetPosition()
+{
+	if (NumMemberUnits == 0) return;
+	for (auto& member : MemberUnits)
+	{
+		if (member == NULL) continue;
+		member->setTargetPosition(getMemberTargetPosition(member), Vec2TargetAngle, true);
+	}
+}
+
+void Division::mission()
+{
+	if (JoinedMission == NULL)
+	{
+		for (auto& mission : missions)
+		{
+			if (mission.Enabled && mission.JoinedPower == this->JoinedPower && mission.JoinedDivision == NULL && mission.Bal==5)
+			{
+				this->JoinedMission = &mission;
+				mission.JoinedDivision = this;
+				TargetPosition = mission.Position;
+				Vec2TargetAngle = 1;
+				setAllMemberTargetPosition();
+				break;
+			}
+		}
+	}
+}
+
 
 bool CameraGripLeftEnabled = false;		//カメラが画面をグリップしているかどうか
 bool CameraGripRightEnabled = false;		//カメラが画面をグリップしているかどうか
@@ -407,9 +441,43 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//ミッションの設定
 	for (int x = 0; x < 20; x++)
 	{
-		for (int y = 0; y < 100; y++)
+		for (int y = 0; y < 15; y++)
 		{
-			missions[x + y*x].set()
+			if (x < 10)
+				missions[x + y * 20].set(Vec2(x * 50.0, y * 43.0 + (x % 2) * 22.0), &powers[0]);
+			else
+				missions[x + y * 20].set(Vec2(x * 50.0, y * 43.0 + (x % 2) * 22.0), &powers[1]);
+		}
+	}
+	//ミッションの接続を行う
+	for (auto& mission : missions)
+	{
+		if (mission.Enabled)
+		{
+			int count = 0;
+			for (auto& connect : missions)
+			{
+				if (&connect != &mission && connect.Enabled && mission.Position.distanceFrom(connect.Position) < 60)
+				{
+					mission.ConnectMissions[count] = &connect;
+					++count;
+				}
+			}
+		}
+	}
+	//ミッションのBALの測定
+	for (auto& mission : missions)
+	{
+		if (mission.Enabled)
+		{
+			mission.Bal = 0;	//非戦闘状態にする
+			for (auto& connect : mission.ConnectMissions)
+			{
+				if (connect != NULL && connect->JoinedPower != mission.JoinedPower)
+				{
+					mission.Bal = 5;	//最大レベルに引き上げ
+				}
+			}
 		}
 	}
 
@@ -421,16 +489,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	//師団の生成
 	for (auto& division : divisions) division.reset();
-	for (int i = 2; i < 4; i++)
+	for (int i = 0; i < 200; i++)
 		divisions[i].set(&powers[0]);
-	for (int i = 0; i < 2; i++)
+	for (int i = 200; i < 400; i++)
 		divisions[i].set(&powers[1]);
 
 	//ユニットの生成
 	for (auto& unit : units) unit.reset();
-	for (int i = 0; i < 10; i++)
+	for (int i = 0; i < 1000; i++)
 		units[i].set(&powers[0], 0, 0, 1280, 768, Random(Pi));
-	for (int i = 10; i < 20; i++)
+	for (int i = 1000; i < 2000; i++)
 		units[i].set(&powers[1], 0, 0, 1280, 768, Random(Pi));
 
 	//ユニットのモデル読み込み
@@ -446,8 +514,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		//ユニットの処理
 		for (auto& unit : units)
 			unit.update();
+		for (auto& division : divisions)
+			division.update();
 
+		SetDrawScreen(DX_SCREEN_BACK);
+		SetBackgroundColor(64, 64, 200);
 		ClearDrawScreen();
+		//DrawBox(0, 0, 1280, 760, GetColor(128, 128, 255), true);
 
 		//カメラ処理
 		SetCameraPositionAndTarget_UpVecY(CameraPos().VEC(), CameraGroundPos.VEC());
